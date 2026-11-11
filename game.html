@@ -1,0 +1,796 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Neon Nitro Racing</title>
+
+<style>
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    background: #080d1c;
+    color: white;
+    font-family: Arial, sans-serif;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    padding: 12px;
+}
+
+.game {
+    width: 100%;
+    max-width: 430px;
+    text-align: center;
+}
+
+h1 {
+    color: #00f5ff;
+    font-size: 27px;
+    margin-bottom: 12px;
+    text-shadow: 0 0 15px #00d9ff;
+}
+
+.hud {
+    display: flex;
+    justify-content: space-between;
+    gap: 7px;
+    margin-bottom: 10px;
+}
+
+.panel {
+    background: #151f38;
+    border: 1px solid #00cfff;
+    border-radius: 10px;
+    padding: 10px 5px;
+    flex: 1;
+    font-size: 13px;
+}
+
+.panel span {
+    display: block;
+    color: #00f5ff;
+    font-size: 19px;
+    font-weight: bold;
+    margin-top: 4px;
+}
+
+canvas {
+    width: 100%;
+    display: block;
+    background: #111827;
+    border: 3px solid #00d9ff;
+    border-radius: 15px;
+    box-shadow: 0 0 25px #00bfff55;
+}
+
+.controls {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+button {
+    border: none;
+    border-radius: 12px;
+    padding: 13px 18px;
+    font-size: 15px;
+    font-weight: bold;
+    color: white;
+    background: #172642;
+    border: 1px solid #00d9ff;
+    cursor: pointer;
+    touch-action: none;
+}
+
+button:active {
+    transform: scale(.94);
+}
+
+.nitro {
+    background: linear-gradient(135deg, #ff4b00, #ff0080);
+    border: none;
+    flex: 1;
+}
+
+.overlay {
+    position: fixed;
+    inset: 0;
+    background: #050817dd;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    z-index: 5;
+}
+
+.box {
+    background: #111d36;
+    border: 2px solid #00eaff;
+    border-radius: 20px;
+    padding: 28px 20px;
+    width: 100%;
+    max-width: 330px;
+    box-shadow: 0 0 30px #00d9ff66;
+}
+
+.box h2 {
+    color: #00f5ff;
+    font-size: 27px;
+    margin-bottom: 12px;
+}
+
+.box p {
+    line-height: 1.6;
+    margin-bottom: 18px;
+    color: #d9e8ff;
+}
+
+.start {
+    background: linear-gradient(135deg, #00c6ff, #0072ff);
+    width: 100%;
+}
+
+.hidden {
+    display: none;
+}
+
+.help {
+    color: #a9c8e8;
+    font-size: 12px;
+    margin-top: 10px;
+}
+</style>
+</head>
+
+<body>
+
+<div class="game">
+
+    <h1>🏎️ NEON NITRO RACING</h1>
+
+    <div class="hud">
+        <div class="panel">
+            COINS
+            <span id="coins">0 / 30</span>
+        </div>
+
+        <div class="panel">
+            NITRO
+            <span id="nitro">100%</span>
+        </div>
+
+        <div class="panel">
+            BEST
+            <span id="best">0</span>
+        </div>
+    </div>
+
+    <canvas id="gameCanvas" width="420" height="700"></canvas>
+
+    <div class="controls">
+        <button id="left">⬅ LEFT</button>
+        <button class="nitro" id="nitroBtn">⚡ NITRO</button>
+        <button id="right">RIGHT ➡</button>
+    </div>
+
+    <p class="help">
+        Keyboard: ← → to move | Hold SPACE for Nitro
+    </p>
+</div>
+
+<div class="overlay" id="startScreen">
+    <div class="box">
+        <h2>🏁 NEON RACING</h2>
+        <p>
+            Collect exactly 30 coins.<br>
+            Activate Nitro and avoid enemy cars.<br>
+            Cross the Zebra Finish Line to WIN!
+        </p>
+        <button class="start" id="startBtn">START GAME</button>
+    </div>
+</div>
+
+<div class="overlay hidden" id="endScreen">
+    <div class="box">
+        <h2 id="endTitle">GAME OVER</h2>
+        <p id="endMessage"></p>
+        <button class="start" id="restartBtn">PLAY AGAIN</button>
+    </div>
+</div>
+
+<script>
+const canvas = document.getElementById("gameCanvas");
+const ctx = canvas.getContext("2d");
+
+const W = canvas.width;
+const H = canvas.height;
+
+const lanes = [115, 210, 305];
+
+const player = {
+    lane: 1,
+    x: lanes[1],
+    y: 535,
+    width: 48,
+    height: 88
+};
+
+let coins = 0;
+let nitro = 100;
+let enemies = [];
+let coinObjects = [];
+let particles = [];
+
+let roadOffset = 0;
+let finishY = -100;
+let finishActive = false;
+
+let running = false;
+let gameOver = false;
+let winner = false;
+let nitroOn = false;
+
+let frame = 0;
+let speed = 5;
+let best = Number(localStorage.getItem("racingBest")) || 0;
+
+document.getElementById("best").textContent = best;
+
+const coinDisplay = document.getElementById("coins");
+const nitroDisplay = document.getElementById("nitro");
+
+let audioContext = null;
+let soundEnabled = true;
+
+function initAudio() {
+    if (!audioContext) {
+        audioContext = new (
+            window.AudioContext ||
+            window.webkitAudioContext
+        )();
+    }
+
+    if (audioContext.state === "suspended") {
+        audioContext.resume();
+    }
+}
+
+function playSound(type) {
+    if (!soundEnabled || !audioContext) return;
+
+    const oscillator = audioContext.createOscillator();
+    const gain = audioContext.createGain();
+
+    oscillator.connect(gain);
+    gain.connect(audioContext.destination);
+
+    let frequency = 400;
+    let duration = 0.15;
+    let wave = "sine";
+
+    if (type === "coin") {
+        frequency = 1000;
+        duration = 0.13;
+    }
+
+    if (type === "nitro") {
+        frequency = 180;
+        duration = 0.35;
+        wave = "sawtooth";
+    }
+
+    if (type === "crash") {
+        frequency = 90;
+        duration = 0.5;
+        wave = "sawtooth";
+    }
+
+    if (type === "win") {
+        frequency = 750;
+        duration = 0.7;
+    }
+
+    if (type === "finish") {
+        frequency = 550;
+        duration = 0.3;
+    }
+
+    oscillator.type = wave;
+    oscillator.frequency.setValueAtTime(
+        frequency,
+        audioContext.currentTime
+    );
+
+    if (type === "win") {
+        oscillator.frequency.setValueAtTime(
+            1100,
+            audioContext.currentTime + 0.25
+        );
+    }
+
+    gain.gain.setValueAtTime(
+        0.12,
+        audioContext.currentTime
+    );
+
+    gain.gain.exponentialRampToValueAtTime(
+        0.001,
+        audioContext.currentTime + duration
+    );
+
+    oscillator.start();
+    oscillator.stop(audioContext.currentTime + duration);
+}
+
+function updateHUD() {
+    coinDisplay.textContent = coins + " / 30";
+    nitroDisplay.textContent = Math.floor(nitro) + "%";
+}
+
+function drawRoad() {
+    // Background
+    let bg = ctx.createLinearGradient(0, 0, 0, H);
+    bg.addColorStop(0, "#10213b");
+    bg.addColorStop(1, "#080d18");
+
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, W, H);
+
+    // Road
+    ctx.fillStyle = "#242b38";
+    ctx.fillRect(55, 0, 310, H);
+
+    // Road borders
+    ctx.fillStyle = "#00eaff";
+    ctx.fillRect(51, 0, 4, H);
+    ctx.fillRect(365, 0, 4, H);
+
+    // Lane markings
+    ctx.strokeStyle = "#dce5ee";
+    ctx.lineWidth = 3;
+    ctx.setLineDash([35, 30]);
+
+    ctx.lineDashOffset = -roadOffset;
+
+    ctx.beginPath();
+    ctx.moveTo(160, 0);
+    ctx.lineTo(160, H);
+    ctx.moveTo(260, 0);
+    ctx.lineTo(260, H);
+    ctx.stroke();
+
+    ctx.setLineDash([]);
+
+    // Roadside lights
+    for (let i = 0; i < 10; i++) {
+        let y = (i * 100 + roadOffset * 2) % H;
+
+        ctx.fillStyle = "#00eaff";
+        ctx.shadowColor = "#00eaff";
+        ctx.shadowBlur = 12;
+
+        ctx.fillRect(20, y, 8, 22);
+        ctx.fillRect(392, y, 8, 22);
+
+        ctx.shadowBlur = 0;
+    }
+}
+
+function drawCar(x, y, color, isPlayer = false) {
+    ctx.save();
+    ctx.translate(x, y);
+
+    // Shadow
+    ctx.fillStyle = "#00000088";
+    ctx.beginPath();
+    ctx.ellipse(0, 78, 31, 10, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Wheels
+    ctx.fillStyle = "#080808";
+    ctx.fillRect(-27, 18, 9, 24);
+    ctx.fillRect(18, 18, 9, 24);
+    ctx.fillRect(-27, 59, 9, 22);
+    ctx.fillRect(18, 59, 9, 22);
+
+    // Body gradient
+    let gradient = ctx.createLinearGradient(-25, 0, 25, 0);
+    gradient.addColorStop(0, "#555");
+    gradient.addColorStop(0.25, color);
+    gradient.addColorStop(0.75, color);
+    gradient.addColorStop(1, "#333");
+
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    ctx.roundRect(-23, 5, 46, 78, 12);
+    ctx.fill();
+
+    // Front glass
+    ctx.fillStyle = "#102b45";
+    ctx.beginPath();
+    ctx.roundRect(-17, 17, 34, 22, 6);
+    ctx.fill();
+
+    // Rear glass
+    ctx.fillStyle = "#102b45";
+    ctx.beginPath();
+    ctx.roundRect(-17, 51, 34, 15, 5);
+    ctx.fill();
+
+    // Lights
+    ctx.fillStyle = isPlayer ? "#00ffff" : "#ff3333";
+    ctx.fillRect(-17, 6, 10, 5);
+    ctx.fillRect(7, 6, 10, 5);
+
+    ctx.restore();
+}
+
+function drawCoin(c) {
+    ctx.save();
+
+    ctx.shadowColor = "#ffd700";
+    ctx.shadowBlur = 18;
+
+    ctx.fillStyle = "#ffcc00";
+    ctx.beginPath();
+    ctx.arc(c.x, c.y, 13, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = "#fff3a0";
+    ctx.lineWidth = 3;
+    ctx.stroke();
+
+    ctx.fillStyle = "#8a5200";
+    ctx.font = "bold 16px Arial";
+    ctx.textAlign = "center";
+    ctx.fillText("$", c.x, c.y + 6);
+
+    ctx.restore();
+}
+
+function drawFinishLine() {
+    if (!finishActive) return;
+
+    const left = 55;
+    const width = 310;
+    const height = 32;
+    const size = 20;
+
+    ctx.fillStyle = "white";
+    ctx.fillRect(left, finishY, width, height);
+
+    // Checkered zebra pattern
+    for (let x = 0; x < width; x += size) {
+        ctx.fillStyle = "#080808";
+
+        if ((x / size) % 2 === 0) {
+            ctx.fillRect(left + x, finishY, size, size);
+        } else {
+            ctx.fillRect(
+                left + x,
+                finishY + size,
+                size,
+                size
+            );
+        }
+    }
+
+    ctx.fillStyle = "#00ffff";
+    ctx.font = "bold 18px Arial";
+    ctx.textAlign = "center";
+    ctx.shadowColor = "#00ffff";
+    ctx.shadowBlur = 10;
+    ctx.fillText("FINISH LINE", W / 2, finishY - 12);
+    ctx.shadowBlur = 0;
+}
+
+function createParticles(x, y, color) {
+    for (let i = 0; i < 12; i++) {
+        particles.push({
+            x: x,
+            y: y,
+            vx: (Math.random() - 0.5) * 5,
+            vy: (Math.random() - 0.5) * 5,
+            life: 25,
+            color: color
+        });
+    }
+}
+
+function drawParticles() {
+    particles.forEach(p => {
+        ctx.globalAlpha = p.life / 25;
+        ctx.fillStyle = p.color;
+        ctx.fillRect(p.x, p.y, 5, 5);
+
+        p.x += p.vx;
+        p.y += p.vy;
+        p.life--;
+    });
+
+    ctx.globalAlpha = 1;
+
+    particles = particles.filter(p => p.life > 0);
+}
+
+function spawnCoin() {
+    if (coins < 30 && !finishActive) {
+        coinObjects.push({
+            x: lanes[Math.floor(Math.random() * 3)],
+            y: -30
+        });
+    }
+}
+
+function spawnEnemy() {
+    if (frame % 100 === 0) {
+        enemies.push({
+            x: lanes[Math.floor(Math.random() * 3)],
+            y: -110,
+            color: ["#ff1744", "#ff9800", "#9c27b0"][
+                Math.floor(Math.random() * 3)
+            ]
+        });
+    }
+}
+
+function moveLeft() {
+    if (!running) return;
+    player.lane = Math.max(0, player.lane - 1);
+}
+
+function moveRight() {
+    if (!running) return;
+    player.lane = Math.min(2, player.lane + 1);
+}
+
+function setNitro(value) {
+    nitroOn = value && nitro > 0 && running;
+}
+
+function gameEnd(isWinner) {
+    if (!running) return;
+
+    running = false;
+    nitroOn = false;
+
+    if (isWinner) {
+        winner = true;
+        playSound("win");
+
+        document.getElementById("endTitle").textContent =
+            "🏆 YOU ARE THE WINNER!";
+
+        document.getElementById("endMessage").textContent =
+            "Amazing driving! You collected 30 coins and crossed the Zebra Finish Line!";
+    } else {
+        gameOver = true;
+        playSound("crash");
+
+        document.getElementById("endTitle").textContent =
+            "💥 GAME OVER";
+
+        document.getElementById("endMessage").textContent =
+            "Your car crashed! You collected " + coins + " coins. Try again!";
+    }
+
+    document.getElementById("endScreen").classList.remove("hidden");
+}
+
+function resetGame() {
+    coins = 0;
+    nitro = 100;
+
+    enemies = [];
+    coinObjects = [];
+    particles = [];
+
+    player.lane = 1;
+    player.x = lanes[1];
+
+    roadOffset = 0;
+    finishY = -100;
+    finishActive = false;
+
+    frame = 0;
+    speed = 5;
+
+    winner = false;
+    gameOver = false;
+    nitroOn = false;
+
+    updateHUD();
+}
+
+function startGame() {
+    initAudio();
+    resetGame();
+
+    document.getElementById("startScreen").classList.add("hidden");
+    document.getElementById("endScreen").classList.add("hidden");
+
+    running = true;
+}
+
+function update() {
+    if (!running) return;
+
+    frame++;
+
+    speed = nitroOn ? 10 : 5;
+
+    roadOffset = (roadOffset + speed) % 65;
+
+    // Smooth car movement
+    player.x += (lanes[player.lane] - player.x) * 0.22;
+
+    // Nitro consumption
+    if (nitroOn) {
+        nitro = Math.max(0, nitro - 0.6);
+
+        if (nitro === 0) nitroOn = false;
+    } else {
+        nitro = Math.min(100, nitro + 0.08);
+    }
+
+    updateHUD();
+
+    // Spawn objects
+    if (!finishActive && frame % 65 === 0) {
+        spawnCoin();
+    }
+
+    spawnEnemy();
+
+    // Move coins
+    coinObjects.forEach(c => {
+        c.y += speed;
+
+        let dx = Math.abs(player.x - c.x);
+        let dy = Math.abs((player.y + 42) - c.y);
+
+        if (dx < 33 && dy < 42 && coins < 30) {
+            coins++;
+            playSound("coin");
+            createParticles(c.x, c.y, "#ffd700");
+            c.collected = true;
+
+            if (coins === 30) {
+                finishActive = true;
+                finishY = -50;
+                playSound("finish");
+            }
+        }
+    });
+
+    coinObjects = coinObjects.filter(
+        c => c.y < H + 30 && !c.collected
+    );
+
+    // Move enemy cars and check collision
+    enemies.forEach(e => {
+        e.y += speed;
+
+        let hitX = Math.abs(player.x - e.x) < 42;
+        let hitY = Math.abs(player.y - e.y) < 78;
+
+        if (hitX && hitY) {
+            gameEnd(false);
+        }
+    });
+
+    enemies = enemies.filter(e => e.y < H + 120);
+
+    // Finish line movement
+    if (finishActive) {
+        finishY += speed;
+
+        // Victory only after the car crosses the zebra line
+        if (finishY >= player.y + 35) {
+            gameEnd(true);
+        }
+    }
+}
+
+function draw() {
+    drawRoad();
+
+    // Draw coins
+    coinObjects.forEach(drawCoin);
+
+    // Draw enemies
+    enemies.forEach(e => {
+        drawCar(e.x, e.y, e.color, false);
+    });
+
+    // Finish line
+    drawFinishLine();
+
+    // Nitro flame
+    if (nitroOn && running) {
+        ctx.fillStyle = "#ff4b00";
+        ctx.shadowColor = "#ff5a00";
+        ctx.shadowBlur = 20;
+
+        ctx.beginPath();
+        ctx.moveTo(player.x - 10, player.y + 82);
+        ctx.lineTo(player.x, player.y + 115 + Math.random() * 15);
+        ctx.lineTo(player.x + 10, player.y + 82);
+        ctx.fill();
+
+        ctx.shadowBlur = 0;
+    }
+
+    // Player car
+    drawCar(player.x, player.y, "#00d9ff", true);
+
+    drawParticles();
+
+    if (finishActive && running) {
+        ctx.fillStyle = "#fff";
+        ctx.font = "bold 14px Arial";
+        ctx.textAlign = "center";
+        ctx.fillText("30 COINS! REACH THE FINISH!", W / 2, 35);
+    }
+}
+
+function gameLoop() {
+    update();
+    draw();
+    requestAnimationFrame(gameLoop);
+}
+
+// Keyboard controls
+document.addEventListener("keydown", e => {
+    if (e.key === "ArrowLeft" || e.key === "a") {
+        moveLeft();
+    }
+
+    if (e.key === "ArrowRight" || e.key === "d") {
+        moveRight();
+    }
+
+    if (e.code === "Space") {
+        e.preventDefault();
+        setNitro(true);
+    }
+});
+
+document.addEventListener("keyup", e => {
+    if (e.code === "Space") {
+        setNitro(false);
+    }
+});
+
+// Mobile buttons
+document.getElementById("left").addEventListener("pointerdown", moveLeft);
+document.getElementById("right").addEventListener("pointerdown", moveRight);
+
+const nitroButton = document.getElementById("nitroBtn");
+
+nitroButton.addEventListener("pointerdown", () => {
+    initAudio();
+    setNitro(true);
+});
+
+["pointerup", "pointerleave", "pointercancel"].forEach(event => {
+    nitroButton.addEventListener(event, () => setNitro(false));
+});
+
+document.getElementById("startBtn").addEventListener("click", startGame);
+document.getElementById("restartBtn").addEventListener("click", startGame);
+
+// Start animation
+gameLoop();
+
+</script>
+</body>
+</html>
